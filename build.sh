@@ -1,5 +1,3 @@
-#!/bin/bash
-
 if [ "$#" -ne 1 ]; then
     echo "Usage: $0 <source.asm>"
     exit 1
