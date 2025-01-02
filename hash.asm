@@ -1,3 +1,5 @@
+%include "constants.inc"
+
 global _start
 
 section .data
@@ -32,12 +34,12 @@ hash_loop:
     jmp hash_loop
 
 print_hash:
-    mov rax, 1
-    mov rdi, 1
+    mov rax, WRITE
+    mov rdi, WRITE
     mov rsi, hash
     mov rdx, 8
     syscall
 
-    mov rax, 60
+    mov rax, EXIT
     xor rdi, rdi
     syscall
