@@ -36,6 +36,16 @@ _start:
     test rax, rax
     js   bind_fail
 
+    ; listen to socket
+    mov rax, 50     ; listen syscall number
+    mov rdi, [sock] ; fd of socket
+    mov rsi, 1      ; max connection backlog allowed
+    syscall
+
+    ; check for listen errors (rax < 0)
+    cmp rax, 0
+    jl  listen_fail ; jump to err if (rax < 0)
+
     ; exit
     mov rax, 60
     xor rdi, rdi
@@ -48,6 +58,12 @@ socket_fail:
     syscall
 
 bind_fail:
+    ; handle bind error
+    mov rax, 60
+    mov rdi, 2
+    syscall
+
+listen_fail:
     ; handle bind error
     mov rax, 60
     mov rdi, 2
