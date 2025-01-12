@@ -110,18 +110,20 @@ int main() {
     }
 
     // multiple requests
-    int32_t err = query(fd, "hello1");
+    int32_t err = query(fd, "set key value");
+
     if (err) {
         goto L_DONE;
     }
-    err = query(fd, "hello2");
-    if (err) {
-        goto L_DONE;
-    }
-    err = query(fd, "hello3");
-    if (err) {
-        goto L_DONE;
-    }
+
+    // err = query(fd, "hello2");
+    // if (err) {
+    //     goto L_DONE;
+    // }
+    // err = query(fd, "hello3");
+    // if (err) {
+    //     goto L_DONE;
+    // }
 
 L_DONE:
     close(fd);
