@@ -14,9 +14,12 @@ section .data
                 dw 0xd204          ; sin_port (1234 in big-endian)
                 dd 0               ; sin_addr (0.0.0.0 -> INADDR_ANY)
                 db 0,0,0,0,0,0,0,0 ; sin_zero (padding)
-    
-    reply     db  "world", 0
-    reply_len equ $ - reply
+
+    reply_ok     db  "200", 0
+    reply_ok_len equ $ - reply_ok
+
+    reply_not_found     db  "404", 0
+    reply_not_found_len equ $ - reply_not_found
 
     msg_eof     db  "EOF", 0
     msg_eof_len equ $ - msg_eof
@@ -33,6 +36,10 @@ section .data
     ; this indicates a boolean value, but the function in C
     ; requires a pointer to an int, which is 4 bytes
     value dd 1 ; value for SO_REUSEADDR
+
+    set_cmd db "set", 0
+    get_cmd db "get", 0
+    del_cmd db "del", 0
 
 section .text
 _start:
@@ -133,9 +140,9 @@ request_loop:
     syscall
 
     ; check for read() errors
-    ; test rax, rax
-    ; jz   close_client ; EOF
-    ; js   read_error   ; read error
+    test rax, rax
+    jz   close_client ; EOF
+    js   read_error   ; read error
 
     ; store the number of bytes read
     mov [bytes_read], rax
@@ -150,21 +157,30 @@ request_loop:
     mov rdx, [bytes_read] ; message length
     syscall
 
-    ; prepare to reply to client
-    mov   eax,     reply_len
-    bswap eax                ; convert to big-endian (network byte order)
-    mov   [w_buf], eax       ; write length header
+    ; parse command
+    lea  rsi, [r_buf + 4] ; point to the start of the cmd
+    call parse_command
 
-    lea       rsi, [reply]
+    ; send appropriate reply to client
+    cmp rax, 1
+    je  send_ok        ; 1 indicates valid command
+    jne send_not_found ; 0 indicates invalid command
+
+send_ok:
+    mov   eax,     reply_ok_len
+    bswap eax                   ; convert to network byte order (big-endian)
+    mov   [w_buf], eax
+
+    lea       rsi, [reply_ok]
     lea       rdi, [w_buf + 4]
-    mov       rcx, reply_len
-    rep movsb                  ; Copy 'reply_len' bytes from [rsi] to [rdi].
-    
+    mov       rcx, reply_ok_len
+    rep movsb                   ; copy 'reply_ok_len' bytes from [rsi] to [rdi]
+
     ; send reply
-    mov rax, 1             ; write syscall
-    mov rdi, [client]      ; client fd
+    mov rax, 1
+    mov rdi, [client]
     lea rsi, [w_buf]
-    mov rdx, 4 + reply_len ; header + reply msg
+    mov rdx, 4 + reply_ok_len
     syscall
 
     ; check for write() errors (rax < 0)
@@ -173,6 +189,58 @@ request_loop:
 
     ; repeat for next request
     jmp request_loop
+
+send_not_found:
+    mov   eax,     reply_not_found_len
+    bswap eax                          ; convert to network byte order (big-endian)
+    mov   [w_buf], eax
+
+    lea       rsi, [reply_not_found]
+    lea       rdi, [w_buf + 4]
+    mov       rcx, reply_not_found_len
+    rep movsb                          ; copy 'reply_not_found_len' bytes from [rsi] to [rdi]
+
+    ; send reply
+    mov rax, 1
+    mov rdi, [client]
+    lea rsi, [w_buf]
+    mov rdx, 4 + reply_not_found_len
+    syscall
+
+    ; check for write() errors (rax < 0)
+    test rax, rax
+    js   write_error
+
+    ; repeat for next request
+    jmp request_loop
+
+parse_command:
+    ; rsi points to the start of the message
+    ; only 'get', 'set' or 'del' commands should be allowed
+    mov rdi, rsi
+    mov rcx, 3
+    lea rsi, [set_cmd]
+    repe cmpsb
+    je  valid_command
+
+    mov rdi, rsi
+    mov rcx, 3
+    lea rsi, [get_cmd]
+    repe cmpsb
+    je  valid_command
+
+    mov rdi, rsi
+    mov rcx, 3
+    lea rsi, [del_cmd]
+    repe cmpsb
+    je  valid_command
+
+    mov rax, 0
+    ret
+
+valid_command:
+    mov rax, 1
+    ret
 
 close_client:
     mov rax, 3        ; socket close syscall
