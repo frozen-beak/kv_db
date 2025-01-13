@@ -9,6 +9,10 @@ section .bss
 
     bytes_read resq 1 ; bytes read from the client
 
+    kv_key    resb 128 ; reserved 128 bytes for the key
+    kv_value  resb 256 ; reserved 256 bytes for the value
+    kv_exists resb 1   ; Flag indicating if pair exists (0 = n, 1 = y)
+
 section .data
     sockaddr_in db 2, 0 ; sin_family (AF_INET)
                 dw 0xd204          ; sin_port (1234 in big-endian)
@@ -166,6 +170,98 @@ request_loop:
     je  send_ok        ; 1 indicates valid command
     jne send_not_found ; 0 indicates invalid command
 
+parse_command:
+    ; rsi points to the start of the message
+    ; only 'get', 'set' or 'del' commands should be allowed
+    mov rdi, rsi
+    mov rcx, 3
+    lea rsi, [set_cmd]
+    repe cmpsb
+    je  handle_set
+
+    mov rdi, rsi
+    mov rcx, 3
+    lea rsi, [get_cmd]
+    repe cmpsb
+    je  handle_get
+
+    mov rdi, rsi
+    mov rcx, 3
+    lea rsi, [del_cmd]
+    repe cmpsb
+    je  handle_del
+
+    mov rax, 0
+    ret
+
+handle_set:
+    ; Parse the key and value from the message
+    ; Assuming the message format is "set key value"
+    lea  rdi, [r_buf + 4 + 4] ; Skip "set " (4 bytes)
+    lea  rsi, [kv_key]        ; mem pointer to store the key
+    call store_key
+
+    lea  rdi, [r_buf + 4 + 4 + 128] ; skip key and space
+    lea  rsi, [kv_value]            ; mem pointer to store the value
+    call store_value
+
+    ; update the kv flag to 1 (y)
+    mov byte [kv_exists], 1
+
+    mov rax, 1 ; indicates operation was successful
+    ret
+
+handle_get:
+    ; check if the key exists
+    cmp byte [kv_exists], 1
+    jne key_not_found
+
+    ; return the value
+    lea  rsi, [kv_value]
+    call send_value
+
+    mov rax, 1 ; indicates operation was successful
+    ret
+
+handle_del:
+    ; check if the key exists
+    cmp byte [kv_exists], 1
+    jne key_not_found
+
+    ; Clear the key and value
+    mov byte [kv_exists], 0
+    mov rax,              1
+    ret
+
+store_key:
+    ; rdi: source string
+    ; rsi: destination buffer
+    ; Copy the key from the source to the destination
+    mov rcx, 128
+    rep movsb
+    ret
+
+store_value:
+    ; rdi: source string
+    ; rsi: destination buffer
+    ; Copy the value from the source to the destination
+    mov rcx, 256
+    rep movsb
+    ret
+
+key_not_found:
+    mov rax, 0
+    ret
+
+send_value:
+    ; rsi: pointer to the value
+    ; Send the value back to the client
+    mov rax, 1
+    mov rdi, [client]
+    mov rdx, 256
+    syscall
+    ret
+
 send_ok:
     mov   eax,     reply_ok_len
     bswap eax                   ; convert to network byte order (big-endian)
@@ -213,34 +309,6 @@ send_not_found:
 
     ; repeat for next request
     jmp request_loop
-
-parse_command:
-    ; rsi points to the start of the message
-    ; only 'get', 'set' or 'del' commands should be allowed
-    mov rdi, rsi
-    mov rcx, 3
-    lea rsi, [set_cmd]
-    repe cmpsb
-    je  valid_command
-
-    mov rdi, rsi
-    mov rcx, 3
-    lea rsi, [get_cmd]
-    repe cmpsb
-    je  valid_command
-
-    mov rdi, rsi
-    mov rcx, 3
-    lea rsi, [del_cmd]
-    repe cmpsb
-    je  valid_command
-
-    mov rax, 0
-    ret
-
-valid_command:
-    mov rax, 1
-    ret
 
 close_client:
     mov rax, 3        ; socket close syscall

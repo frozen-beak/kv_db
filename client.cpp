@@ -116,14 +116,17 @@ int main() {
         goto L_DONE;
     }
 
-    // err = query(fd, "hello2");
-    // if (err) {
-    //     goto L_DONE;
-    // }
-    // err = query(fd, "hello3");
-    // if (err) {
-    //     goto L_DONE;
-    // }
+    err = query(fd, "get key");
+
+    if (err) {
+        goto L_DONE;
+    }
+
+    err = query(fd, "del key");
+
+    if (err) {
+        goto L_DONE;
+    }
 
 L_DONE:
     close(fd);
