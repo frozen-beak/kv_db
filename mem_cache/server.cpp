@@ -297,7 +297,7 @@ int main() {
 
       Conn *conn = fd2conn[poll_args[i].fd];
 
-      if (ready && POLLIN) {
+      if (ready & POLLIN) {
         assert(conn->want_read);
         handle_read(conn);
       }
