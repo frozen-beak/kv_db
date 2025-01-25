@@ -1,16 +1,15 @@
-#include <arpa/inet.h>
 #include <assert.h>
-#include <cstddef>
-#include <cstdint>
 #include <errno.h>
 #include <netinet/ip.h>
+#include <arpa/inet.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <unistd.h>
+#include <vector>
 
 static void msg(const char *msg) { fprintf(stderr, "%s\n", msg); }
 
@@ -20,77 +19,84 @@ static void die(const char *msg) {
   abort();
 }
 
-static int32_t read_full(int fd, char *buf, size_t n) {
+static int32_t read_full(int fd, uint8_t *buf, size_t n) {
   while (n > 0) {
     ssize_t rv = read(fd, buf, n);
-
     if (rv <= 0) {
-      return -1;
+      return -1; // error, or unexpected EOF
     }
-
     assert((size_t)rv <= n);
     n -= (size_t)rv;
     buf += rv;
   }
-
   return 0;
 }
 
-static int32_t write_all(int fd, const char *buf, size_t n) {
+static int32_t write_all(int fd, const uint8_t *buf, size_t n) {
   while (n > 0) {
     ssize_t rv = write(fd, buf, n);
     if (rv <= 0) {
-      return -1;
+      return -1; // error
     }
-
     assert((size_t)rv <= n);
     n -= (size_t)rv;
     buf += rv;
   }
-
   return 0;
 }
 
-const size_t k_max_msg = 4096;
+// append to the back
+static void buf_append(std::vector<uint8_t> &buf, const uint8_t *data,
+                       size_t len) {
+  buf.insert(buf.end(), data, data + len);
+}
 
-static int32_t query(int fd, const char *text) {
-  uint32_t len = (uint32_t)strlen(text);
+const size_t k_max_msg = 32 << 20; // likely larger than the kernel buffer
+
+// the `query` function was simply splited into `send_req` and `read_res`.
+static int32_t send_req(int fd, const uint8_t *text, size_t len) {
   if (len > k_max_msg) {
     return -1;
   }
 
-  char wbuf[4 + k_max_msg];
-  memcpy(wbuf, &len, 4);
-  memcpy(&wbuf[4], text, len);
+  std::vector<uint8_t> wbuf;
+  buf_append(wbuf, (const uint8_t *)&len, 4);
+  buf_append(wbuf, text, len);
+  return write_all(fd, wbuf.data(), wbuf.size());
+}
 
-  if (int32_t err = write_all(fd, wbuf, 4 + len)) {
-    return err;
-  }
-
+static int32_t read_res(int fd) {
   // 4 bytes header
-  char rbuf[4 + k_max_msg + 1];
+  std::vector<uint8_t> rbuf;
+  rbuf.resize(4);
   errno = 0;
-
-  int32_t err = read_full(fd, rbuf, 4); // assume little endian
+  int32_t err = read_full(fd, &rbuf[0], 4);
   if (err) {
-    msg(errno == 0 ? "EOF" : "read() error");
+    if (errno == 0) {
+      msg("EOF");
+    } else {
+      msg("read() error");
+    }
     return err;
   }
 
-  memcpy(&len, rbuf, 4);
+  uint32_t len = 0;
+  memcpy(&len, rbuf.data(), 4); // assume little endian
   if (len > k_max_msg) {
     msg("too long");
     return -1;
   }
 
+  // reply body
+  rbuf.resize(4 + len);
   err = read_full(fd, &rbuf[4], len);
-
   if (err) {
-    msg("read() err");
-    return -1;
+    msg("read() error");
+    return err;
   }
 
-  printf("server says: %.*s\n", len, &rbuf[4]);
+  // do something
+  printf("len:%u data:%.*s\n", len, len < 100 ? len : 100, &rbuf[4]);
   return 0;
 }
 
@@ -103,20 +109,32 @@ int main() {
   struct sockaddr_in addr = {};
   addr.sin_family = AF_INET;
   addr.sin_port = ntohs(1234);
-  addr.sin_addr.s_addr = ntohl(INADDR_LOOPBACK);
+  addr.sin_addr.s_addr = ntohl(INADDR_LOOPBACK); // 127.0.0.1
   int rv = connect(fd, (const struct sockaddr *)&addr, sizeof(addr));
   if (rv) {
-    die("connect()");
+    die("connect");
   }
 
-  int32_t err = query(fd, "hello1");
-  if (err) {
-    goto L_DONE;
+  // multiple pipelined requests
+  std::vector<std::string> query_list = {
+      "hello1",
+      "hello2",
+      "hello3",
+      // a large message requires multiple event loop iterations
+      std::string(k_max_msg, 'z'),
+      "hello5",
+  };
+  for (const std::string &s : query_list) {
+    int32_t err = send_req(fd, (uint8_t *)s.data(), s.size());
+    if (err) {
+      goto L_DONE;
+    }
   }
-
-  err = query(fd, "hello2");
-  if (err) {
-    goto L_DONE;
+  for (size_t i = 0; i < query_list.size(); ++i) {
+    int32_t err = read_res(fd);
+    if (err) {
+      goto L_DONE;
+    }
   }
 
 L_DONE:
