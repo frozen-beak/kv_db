@@ -3,15 +3,13 @@ global _start
 section .bss
   sock resq 1
   client resq 1
+  buffer resb 1024
 
 section .data
   sockaddr_in db 2, 0
               dw 0xd204         ; sin_port (1234 in big-endian)
               dd 0
               db 0,0,0,0,0,0,0,0 ; padding
-
-  reply_msg db "connection accpeted", 0
-  reply_len equ $ - reply_msg
 
 section .text
 _start:
@@ -65,26 +63,36 @@ accept_loop:
   ;; store client socket fd
   mov [client], rax
 
-  ;; log connection success
-  mov rax, 1
-  mov rdi, 1
-  mov rsi, reply_msg
-  mov rdx, reply_len
+echo_loop:
+  ;; read data from the client
+  mov rax, 0
+  mov rdi, [client]
+  lea rsi, [buffer]
+  mov rdx, 1024
   syscall
 
-  ;; send response to the client
+  ;; check for read errors
+  ;; or EOF (rax <= 0)
+  test rax, rax
+  jle close_client
+
+  ;; echo data back to client
+  mov rdx, rax                  ; no of bytes received from client
   mov rax, 1
   mov rdi, [client]
-  lea rsi, [reply_msg]
-  mov rdx, reply_len
+  lea rsi, [buffer]
   syscall
 
-  ;; close client socket
+  ;; repeat the echo loop
+  jmp echo_loop
+
+close_client:
+  ;; close the client socket
   mov rax, 3
   mov rdi, [client]
   syscall
 
-  ;; repeat the loop
+  ;; wait for the new connection
   jmp accept_loop
 
 exit:
