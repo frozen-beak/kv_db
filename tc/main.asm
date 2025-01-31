@@ -7,7 +7,7 @@ section .bss
 
 section .data
   sockaddr_in db 2, 0
-              dw 0xd204         ; sin_port (1234 in big-endian)
+              dw 0xd204          ; sin_port (1234 in big-endian)
               dd 0
               db 0,0,0,0,0,0,0,0 ; padding
 
@@ -76,6 +76,16 @@ echo_loop:
   test rax, rax
   jle close_client
 
+  ;; check if client sent 'q'
+  cmp rax, 1
+  je check_quit
+  cmp rax, 2
+  je check_quit_newline
+
+  ;; proceed to echo data
+  jmp echo_data
+
+echo_data:
   ;; echo data back to client
   mov rdx, rax                  ; no of bytes received from client
   mov rax, 1
@@ -86,6 +96,18 @@ echo_loop:
   ;; repeat the echo loop
   jmp echo_loop
 
+check_quit:
+  cmp byte [buffer], 'q'        ; check if the byte is q
+  jne echo_data                 ; don't quit, continue
+  jmp close_client              ; quit
+
+check_quit_newline:
+  cmp byte [buffer], 'q'
+  jne echo_data
+  cmp byte [buffer + 1], 0x0a   ; check if second byte is newline
+  jne echo_data
+  ;; fall through to close client, if both checks pass
+
 close_client:
   ;; close the client socket
   mov rax, 3
@@ -94,6 +116,7 @@ close_client:
 
   ;; wait for the new connection
   jmp accept_loop
+
 
 exit:
   mov rax, 60
