@@ -27,6 +27,9 @@ global _start
 %define F_SETFL 3
 %define O_NONBLOCK 0x4000
 
+;;
+;; Uninitialized global variables
+;;
 section .bss
   ;; listening socket
   sock resq 1
@@ -67,8 +70,109 @@ section .bss
   ;;
   pollfd_array resb ((MAX_CLIENTS + 1) * 8)
 
+;;
+;; Initialized global variables
+;;
+section .data
+  ;;
+  ;; `sockaddr_in` struct (assume IPv4 w/ port 6969)
+  ;;
+  ;; struct:
+  ;;
+  ;;   sa_family:   2 bytes
+  ;;   sin_port:    2 bytes
+  ;;   sin_addr:    4 bytes
+  ;;   padding:     8 bytes
+  ;;
+  ;; Total 16 bytes
+  ;;
+  sockaddr_in:
+      dw 2                           ; AF_INET
+      dw 0x1B39                      ; port 6969 in big-endian (0x391B => 6969)
+      dd 0                           ; sin_addr (INADDR_ANY)
+      dq 0                           ; padding (8 bytes)
+
+  ;; timeout for poll(), set to -1 (infinite)
+  poll_timeout dq -1
+
+  ;;
+  ;; constants for pollfd fields
+  ;;
+  ;; structure,
+  ;;  fd = 0
+  ;;  events = 4
+  ;;  revents = 4
+  pollfd_fd equ 0
+  pollfd_ev equ 4
+  pollfd_rev equ 4
+
+  ;; client states
+  STATE_READ dq 0               ; want to read
+  STATE_WRITE dq 1              ; want to write
+
 section .text
 _start:
+  ;;
+  ;; create a listening socket,
+  ;;
+  ;; `socket(AF_INET, SOCK_STREAM, 0)`
+  ;;
+  mov rax, SYS_SOCKET
+  mov rdi, 2                    ; AF_INET
+  mov rsi, 1                    ; SOCK_STREAM
+  xor rdx, rdx                  ; protocol (0)
+  syscall
+
+  ;; check for listen errors (rax < 0)
+  test rax, rax
+  js exit
+
+  ;; save socket fd
+  mov [sock], rax
+
+  ;; bind the socket
+  mov rax, SYS_BIND
+  mov rdi, [sock]
+  lea rsi, [sockaddr_in]
+  mov rdx, 16                   ; sizeof `sockaddr_in`
+  syscall
+
+  ;; check for bind errors (rax < 0)
+  test rax, rax
+  js exit
+
+  ;; listen to the socket
+  mov rax, SYS_LISTEN
+  mov rdi, [sock]
+  mov rsi, 5                    ; backlog
+  syscall
+
+  ;; check for listen errors (rax < 0)
+  cmp rax, 0
+  jl exit
+
+  ;; set the listening socket to non-blocking
+  ;;
+  ;; `fcntl(fd, F_SETFL, O_NONBLOCK)`
+  mov rax, SYS_FCNTL
+  mov rdi, [sock]
+  mov rsi, F_SETFL
+  mov rdx, O_NONBLOCK
+  syscall
+
+  ;; check for fcntl error (rax < 0)
+  test rax, rax
+  js exit
+
+  ;; init client counter to 0
+  mov qword [active_clients], 0
+
+shut:
   mov rax, SYS_EXIT
-  mov rdi, 0
+  xor rdi, rdi
+  syscall
+
+exit:
+  mov rax, SYS_EXIT
+  mov rdi, 1
   syscall
