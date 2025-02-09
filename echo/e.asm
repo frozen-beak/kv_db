@@ -6,9 +6,6 @@
 ;; MAX_CLIENTS concurrently. Each client is stored in a fixed-size struct
 ;; that holds its file descriptor, state (read or write), the pending
 ;; number of bytes, and a 1024-byte buffer.
-;;
-;; Author: Your Name (adapted by ChatGPT)
-;; Date: 2025-02-10
 ;;-----------------------------------------------------------------------
 
 global _start
