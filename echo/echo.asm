@@ -6,8 +6,13 @@ global _start
 %define SYS_SOCKET 41
 %define SYS_ACCEPT 43
 %define SYS_BIND 49
+%define SYS_SETSOCKETOPT 54
 %define SYS_LISTEN 50
 %define SYS_EXIT 60
+
+;; socket options constants
+%define SOL_SOCKET 1
+%define SO_REUSEADDR 2
 
 section .bss
   sock resq 1
@@ -15,6 +20,8 @@ section .bss
   buffer resb 1024
 
 section .data
+  reuseaddr_val dd 1            ; int (VALUE = 1) for socket options
+
   ;;
   ;; `sockaddr_in` struct (IPv4 w/ port 6969)
   ;;
@@ -53,7 +60,22 @@ _start:
   ;; save socket fd
   mov [sock], rax
 
-  ;; TODO: call setsocketopt to reuse the addr
+  ;;
+  ;; set socket options
+  ;;
+  ;; `setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val))`
+  ;;
+  mov rax, SYS_SETSOCKETOPT
+  mov rdi, [sock]               ; socket fd
+  mov rsi, SOL_SOCKET           ; level
+  mov rdx, SO_REUSEADDR         ; option name
+  lea r10, [reuseaddr_val]      ; pointer to the value
+  mov r8, 4
+  syscall
+
+  ;; check for `setsocketopt` errors
+  test rax, rax
+  js exit
 
   ;;
   ;; bind the socket
