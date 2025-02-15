@@ -264,9 +264,35 @@ client_loop:
   syscall
 
   ;; check for read errors (rax <= 0), can be err/EOF
-  cmp rax, 1
+  cmp rax, 0
   jle .remove_client
 
+  ;; check if client wants to close the connection
+  cmp rax, 1
+  je .check_quit
+
+  ;; check quit command with newline
+  cmp rax, 2
+  je .check_quit_newline
+
+  jmp .echo_client
+
+.check_quit:
+  cmp byte [buffer], 'q'
+  jne .echo_client
+
+  jmp .remove_client
+
+.check_quit_newline:
+  cmp byte [buffer], 'q'
+  jne .echo_client
+
+  cmp byte [buffer + 1], 0x0a   ; check for newline character
+  jne .echo_client
+
+  jmp .remove_client
+
+.echo_client:
   ;;
   ;; echo back to client
   ;;
