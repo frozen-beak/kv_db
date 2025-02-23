@@ -1,1 +1,14 @@
 .vscode
+
+# ignore everything
+*
+
+# include fallowing
+*.asm
+*.sh
+*.inc
+*.nix
+*.cpp
+*.c
+*.h
+
