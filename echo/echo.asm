@@ -26,6 +26,10 @@ global _start
 ;; max no. of connections allowed
 %define MAX_EVENTS 128
 
+;; error values
+%define POLLERR 0x0008
+%define POLLHUP 0x0010
+
 section .bss
   ;; pollfds array: each entry is 8 bytes:
   ;;   4 bytes: file descriptor (int)
@@ -249,7 +253,7 @@ client_loop:
 
   ;; check if the current client has an event (revents & POLLIN)
   movzx eax, word [r9 + 6]
-  test eax, POLLIN
+  test eax, POLLIN | POLLHUP | POLLERR
   jz next_client                ; continue to next client
 
   ;;
@@ -305,8 +309,8 @@ client_loop:
   syscall
 
   ;; check for write errors (rax <= 0)
-  cmp rax, 1
-  jle .remove_client
+  test rax, rax
+  js .remove_client
 
   ;; continue the loop
   jmp next_client
