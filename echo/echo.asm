@@ -41,6 +41,14 @@ section .bss
   nfds resq 1                   ; no. of valid pollfd entries currently in use
   buffer resb 1024              ; temp data buffer
 
+  read_buffer resb MAX_EVENTS * 1024    ; 1KiB read buffer per client
+  write_buffer resb MAX_EVENTS * 1024   ; 1KiB write buffer per client
+
+  read_offsets resq MAX_EVENTS          ; Read pointer for each client
+  write_offsets resq MAX_EVENTS         ; Write pointer for each client
+
+  write_lengths resq MAX_EVENTS         ; Total data to write for each client
+
 section .data
   reuseaddr_val dd 1            ; int (VALUE = 1) for setsocketopt()
 
@@ -220,6 +228,11 @@ poll_loop:
   mov dword [r9], r10d          ; new clients fd
   mov word [r9 + 4], POLLIN     ; events = POLLIN
   mov word [r9 + 6], 0          ; revents = 0
+
+  ; Initialize per-client offsets
+  mov qword [read_offsets + rbx * 8], 0
+  mov qword [write_offsets + rbx * 8], 0
+  mov qword [write_lengths + rbx * 8], 0
 
   ;; increment connection count
   inc qword [nfds]
