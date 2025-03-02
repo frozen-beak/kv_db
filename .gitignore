@@ -1,14 +1,15 @@
-.vscode
-
 # ignore everything
 *
 
+# Allow subdirectories to be checked
+!*/
+
 # include fallowing
-*.asm
-*.sh
-*.inc
-*.nix
-*.cpp
-*.c
-*.h
+!**.asm
+!**.sh
+!**.inc
+!**.nix
+!**.cpp
+!**.c
+!**.h
 
