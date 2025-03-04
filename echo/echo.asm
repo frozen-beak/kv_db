@@ -18,6 +18,7 @@ global _start
 
 ;; poll(2) events (the pollfd struct has: int fd, short events, short revents)
 %define POLLIN 0x0001
+%define POLLOUT 0x0004
 
 ;; fcntl flags (F_SETFL is used to set the file descriptor flags)
 %define F_SETFL 4
@@ -25,6 +26,14 @@ global _start
 
 ;; max no. of connections allowed
 %define MAX_EVENTS 128
+
+;; struc for each client connection
+struc client_data
+    .read_buffer:   resb 1024
+    .write_buffer:  resb 1024
+    .write_count:   resq 1
+    .write_offset:  resq 1
+endstruc
 
 section .bss
   ;; pollfds array: each entry is 8 bytes:
@@ -35,9 +44,16 @@ section .bss
 
   sock resq 1                   ; listening socket
   nfds resq 1                   ; no. of valid pollfd entries currently in use
-  buffer resb 1024              ; temp data buffer
+  buffer resb 1024              ; (temp data buffer) FIXME: Remove this!
+
+  clients resb MAX_EVENTS * client_data_size
 
 section .data
+  client_data_dummy:  istruc client_data
+  iend
+
+  client_data_size equ $ - client_data_dummy
+
   reuseaddr_val dd 1            ; int (VALUE = 1) for setsocketopt()
 
   ;;
@@ -165,7 +181,7 @@ poll_loop:
   ;; check if listening socket has an event
   movzx eax, word [pollfds + 6] ; revents of listening socket i.e. pollfds[0]
   test eax, POLLIN
-  jz skip_accept
+  jz check_clients
 
   ;;
   ;; accept new connection
@@ -180,7 +196,7 @@ poll_loop:
 
   ;; check for accept errors
   cmp rax, 0
-  jz skip_accept
+  jz check_clients
 
   ;; save new client fd in r10
   mov r10, rax
@@ -220,14 +236,14 @@ poll_loop:
   ;; increment connection count
   inc qword [nfds]
 
-  jmp skip_accept
+  jmp check_clients
 
 .close_client_new:
   mov rax, SYS_CLOSE
   mov rdi, r10
   syscall
 
-skip_accept:
+check_clients:
   ;; iterate over client sockets (pollfds indices 1..nfds-1)
   mov rbx, 1
 
