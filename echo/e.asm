@@ -48,9 +48,8 @@ section .bss
 
   sock resq 1                   ; listening socket
   nfds resq 1                   ; no. of valid pollfd entries currently in use
-  buffer resb 1024              ; (temp data buffer) FIXME: Remove this!
 
-  clients resb MAX_EVENTS * client_data_size
+  clients resb MAX_EVENTS * client_data_size ; Per-client buffers
 
 section .data
   client_data_dummy:  istruc client_data
@@ -255,34 +254,31 @@ client_loop:
   cmp rbx, [nfds]
   jge poll_loop
 
-  ;; get pollfd entry
+  ;; Get pollfd entry
   mov r8, rbx
   shl r8, 3
   lea r9, [pollfds + r8]
 
-  ;; get client data
+  ;; Get client data (index = rbx - 1)
   mov r15, rbx
-  dec rbx
+  dec r15 ; 0-based client index
   imul r15, client_data_size
   lea r14, [clients + r15]
 
-  ;; check events
+  ;; Check events
   movzx eax, word [r9 + 6]
-
   test eax, POLLIN
   jnz handle_read
-
   test eax, POLLOUT
   jnz handle_write
-
   test eax, (POLLERR | POLLHUP)
   jnz close_client
 
-  inc rbx
+  inc rbx ; Move to next client
   jmp client_loop
 
 handle_read:
-  ;; read into clients READ buffer
+  ;; Read into client's read buffer
   mov rax, SYS_READ
   mov edi, [r9]
   lea rsi, [r14 + client_data.read_buffer]
@@ -292,7 +288,16 @@ handle_read:
   test rax, rax
   jle close_client
 
-  ;; copy to write buffer and prepare for writing
+  ;; Check for "q\n" command
+  cmp rax, 2
+  jne .copy_to_write
+  cmp byte [r14 + client_data.read_buffer], 'q'
+  jne .copy_to_write
+  cmp byte [r14 + client_data.read_buffer + 1], 0x0a
+  je close_client
+
+.copy_to_write:
+  ;; Copy to write buffer
   mov rcx, rax
   lea rdi, [r14 + client_data.write_buffer]
   lea rsi, [r14 + client_data.read_buffer]
@@ -301,7 +306,7 @@ handle_read:
   mov [r14 + client_data.write_count], rax
   mov qword [r14 + client_data.write_offset], 0
 
-  ;; enable POLLOUT monitering
+  ;; Enable POLLOUT monitoring
   or word [r9 + 4], POLLOUT
   jmp next_client
 
@@ -328,55 +333,21 @@ handle_write:
   jmp next_client
 
 write_done:
-  ;; diable POLLOUT monitering
+  ;; disable POLLOUT monitoring
   and word [r9 + 4], ~POLLOUT
   jmp next_client
 
-.check_quit:
-  cmp byte [buffer], 'q'
-  jne .echo_client
-
-  jmp .remove_client
-
-.check_quit_newline:
-  cmp byte [buffer], 'q'
-  jne .echo_client
-
-  cmp byte [buffer + 1], 0x0a   ; check for newline character
-  jne .echo_client
-
-  jmp .remove_client
-
-.echo_client:
-  ;;
-  ;; echo back to client
-  ;;
-  ;; `write(fd, buffer, <number of bytes read>)`
-  ;;
-  mov rdx, rax
-  mov rax, SYS_WRITE
-  mov edi, dword [r9]           ; client fd
-  lea rsi, [buffer]
-  syscall
-
-  ;; check for write errors (rax <= 0)
-  cmp rax, 1
-  jle .remove_client
-
-  ;; continue the loop
-  jmp next_client
-
-.remove_client:
+close_client:
   ;; close the client socket
   mov rax, SYS_CLOSE
   mov edi, dword [r9]           ; client fd
   syscall
 
-  ;; remove client from `pollfds` by replacing it w/ the last one
+  ;; remove client from `pollfds` by replacing it with the last one
   mov r10, qword [nfds]
   dec r10                       ; last index (nfds -= 1)
 
-  ;; if this is already an last entry, then just decrment the nfds
+  ;; if this is already the last entry, just decrement nfds
   cmp rbx, r10
   je .decrement_nfds
 
@@ -391,8 +362,7 @@ write_done:
 .decrement_nfds:
   mov qword [nfds], r10         ; update the current count in memory
 
-  ;; NOTE: Do not increment rbx here because a new entry has been
-  ;; copied into the current slot.
+  ;; Do not increment rbx here as the current slot has new data
   jmp client_loop_continue
 
 next_client:
