@@ -198,8 +198,8 @@ poll_loop:
   syscall
 
   ;; check for accept errors
-  test rax, rax
-  js .close_client_new
+  cmp rax, 0
+  jz check_clients
 
   ;; save new client fd in r10
   mov r10, rax
