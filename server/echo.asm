@@ -11,9 +11,24 @@ global _start
 %define SYS_SETSOCKOPT 54
 %define SYS_EXIT 60
 
-;; socket options
+;; socket options constants
 %define SOL_SOCKET 1
 %define SO_REUSEADDR 2
+
+;; poll(2) events (the pollfd struct has: int fd, short events, short revents)
+%define POLLIN 0x0001
+%define POLLOUT 0x0004
+
+;; fcntl flags (F_SETFL is used to set the file descriptor flags)
+%define F_SETFL 4
+%define O_NONBLOCK 0x800        ; non block flag on linux
+
+;; max no. of connections allowed
+%define MAX_EVENTS 128
+
+;; error values
+%define POLLERR 0x0008
+%define POLLHUP 0x0010
 
 section .bss
   sock resq 1                   ; listening socket fd
