@@ -3,6 +3,7 @@ global _start
 ;; sys calls
 %define SYS_READ 0
 %define SYS_WRITE 1
+%define SYS_CLOSE 3
 %define SYS_SOCKET 41
 %define SYS_ACCEPT 43
 %define SYS_BIND 49
@@ -95,8 +96,27 @@ server_loop:
 
   ;; check for read errors (rax < 0)
   test rax, rax
-  jnz close_client
+  js close_client
 
+  ;; write back to client
+  mov rdx, rax                  ; len of the data to write back
+  mov rax, SYS_WRITE
+  mov rdi, [client_fd]
+  lea rsi, [buffer]
+  syscall
+
+  ;; check for write errors (rax < 0)
+  test rax, rax
+  js close_client
+
+  jmp server_loop
+
+close_client:
+  mov rax, SYS_CLOSE
+  mov rdi, [client_fd]
+  syscall
+
+  jmp server_loop               ; continue server loop
 
 error_exit:
   mov rax, 60
