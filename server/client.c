@@ -34,35 +34,42 @@ int main() {
 
   // Message to send
   const char *msg = "SET-KEY-VALUE";
-  uint8_t len = strlen(msg); // Length as a single byte
+  uint32_t len = strlen(msg);    // Changed to 32-bit integer
+  uint32_t net_len = htonl(len); // Convert to network byte order
 
-  // Prepare buffer with protocol format {len}{msg}
-  buffer[0] = len;
-  memcpy(buffer + 1, msg, len);
+  // Prepare buffer with protocol format {4-byte-len}{msg}
+  memcpy(buffer, &net_len, 4);  // Copy 4-byte length header
+  memcpy(buffer + 4, msg, len); // Copy message body
 
-  // Send the message
-  if (send(sockfd, buffer, len + 1, 0) < 0) {
+  // Send the message (4 header bytes + message length)
+  if (send(sockfd, buffer, 4 + len, 0) < 0) {
     perror("Send failed");
     close(sockfd);
     return 1;
   }
 
-  // Receive response
-  int bytes_received = recv(sockfd, buffer, BUFFER_SIZE, 0);
-  if (bytes_received < 0) {
-    perror("Receive failed");
+  // Receive response (4-byte header first)
+  uint32_t echoed_len;
+  if (recv(sockfd, &echoed_len, 4, MSG_WAITALL) != 4) {
+    perror("Header receive failed");
     close(sockfd);
     return 1;
   }
 
-  // Extract length from the received data
-  uint8_t received_len = buffer[0];
+  echoed_len = ntohl(echoed_len); // Convert to host byte order
+
+  // Receive message body
+  int bytes_received = recv(sockfd, buffer, echoed_len, MSG_WAITALL);
+  if (bytes_received != echoed_len) {
+    perror("Body receive failed");
+    close(sockfd);
+    return 1;
+  }
 
   // Print response
-  printf("Server echoed: %.*s\n", received_len, buffer + 1);
-  printf("Echoed length: %d\n", received_len);
+  printf("Server echoed: %.*s\n", echoed_len, buffer);
+  printf("Echoed length: %d\n", echoed_len);
 
-  // Close socket
   close(sockfd);
   return 0;
 }

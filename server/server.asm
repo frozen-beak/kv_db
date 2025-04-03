@@ -93,27 +93,19 @@ server_loop:
 
   mov [client_fd], rax          ; save current clients fd
 
-  ;; read from the client fd
-  mov rax, SYS_READ
+  ;; read header from the client fd
   mov rdi, [client_fd]
   lea rsi, [buffer]
-  mov rdx, 128
+  mov rdx, 4                    ; assume header to be a C INT i.e i32
+  mov rax, SYS_READ
   syscall
-
-  ;; check for read errors (rax < 0)
-  test rax, rax
-  js close_client
 
   ;; write back to client fd
-  mov rdx, rax                  ; no of bytes to write
-  mov rax, SYS_WRITE
-  mov rdi, [client_fd]
   lea rsi, [buffer]
+  mov rdx, 4
+  mov rdi, [client_fd]
+  mov rax, SYS_WRITE
   syscall
-
-  ;; check for the write errors (rax < 0)
-  test rax, rax
-  js close_client
 
   ;; fall through and close the client anyways
 
@@ -123,6 +115,76 @@ close_client:
   syscall
 
   jmp server_loop
+
+;; reads exactly `n` bytes from conn fd into buffer
+;;
+;; args:
+;;   rdi - client fd to read from
+;;   rsi - buffer pointer
+;;   rdx - `n` or no. of bytes to read
+;;
+;; ret:
+;;   rax - 0 on success, -1 on EOF/error
+read_full:
+.read_loop:
+  ;; check if `n` is 0
+  cmp rdx, 0
+  jle .done
+
+  ;; read from client fd
+  mov rax, SYS_READ
+  syscall
+
+  ;; check for read errors (rax < 0)
+  test rax, rax
+  js .error
+
+  sub rdx, rax                  ; subtract no. of bytes read from `n`
+  add rsi, rax                  ; advance buffer pointer by no. of bytes read
+
+  jmp .read_loop
+.done:
+  mov rax, 0
+  jmp .ret
+.error:
+  mov rax, -1
+.ret:
+  ret
+
+;; write exactly `n` bytes from buf to conn fd
+;;
+;; args:
+;;   rdi - clients fd
+;;   rsi - pointer to buffer
+;;   rdx - `n` or no of bytes to write
+;;
+;; ret:
+;;   rax: 0 on success and -1 on error
+write_all:
+.write_loop:
+  ;; check if `n` is 0
+  cmp rdx, 0
+  jle .done
+
+  ;; write to client
+  mov rax, SYS_WRITE
+  syscall
+
+  ;; check for write errors (rax < 0 && EOF)
+  test rax, rax
+  js .error
+
+  sub rdx, rax                  ; subtract no. of bytes read from `n`
+  add rsi, rax                  ; advance buffer pointer by no of bytes read
+
+  jmp .write_loop
+.done:
+  mov rax, 0
+  jmp .ret
+.error:
+  mov rax, -1
+.ret:
+  ret
 
 error_exit:
   mov rax, SYS_EXIT
