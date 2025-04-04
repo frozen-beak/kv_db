@@ -1,6 +1,7 @@
 ASM = nasm
 LD = ld
 ASMFLAGS = -f elf64
+DEBUGFLAGS = -g -F dwarf
 TARGET = server
 SRC = server.asm
 OBJ = server.o

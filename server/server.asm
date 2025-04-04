@@ -93,21 +93,98 @@ server_loop:
 
   mov [client_fd], rax          ; save current clients fd
 
-  ;; read header from the client fd
-  mov rdi, [client_fd]
-  lea rsi, [buffer]
-  mov rdx, 4                    ; assume header to be a C INT i.e i32
-  mov rax, SYS_READ
-  syscall
-
-  ;; write back to client fd
+  ;; read 4 byte header from client fd
   lea rsi, [buffer]
   mov rdx, 4
   mov rdi, [client_fd]
+  call read_full
+
+  ;; extract 4 bytes msg len from buffer
+  mov edx, [buffer]
+
+  ;; read the msg from the client fd
+  lea rsi, [buffer + 4]         ; first 4 bytes are header
+  mov rdi, [client_fd]
+  call read_full
+
+  ;; read msg len (header) from buffer
+  mov edx, [buffer]
+  add edx, 4
+
+  ;; write back to client
+  mov rdi, [client_fd]
+  lea rsi, [buffer]
+  call write_full
+
+  jmp close_client              ; close the connection
+
+;; read from the client fd
+;;
+;; args:
+;;   rdi - clients fd to read from
+;;   rsi - buffer pointer
+;;   rdx - no. of bytes to read / buffer len
+;;
+;; ret:
+;;   rax - `0` on success and `-1` on error
+read_full:
+.read_loop:
+  cmp rdx, 0
+  jle .done
+
+  mov rax, SYS_READ
+  syscall
+
+  ;; check for read errors (rax < 0)
+  test rax, rax
+  js .err
+  jz .read_loop                      ; continue reading if 0 bytes are read
+
+  add rsi, rax                  ; advance the buffer pointer
+  sub rdx, rax                  ; subtract no. of bytes read from `n`
+
+  jmp .read_loop
+.done:
+  mov rax, 0
+  jmp .ret
+.err:
+  mov rax, -1
+.ret:
+  ret
+
+
+;; write to the client fd
+;;
+;; args:
+;;   rdi - clients fd to read from
+;;   rsi - buffer pointer
+;;   rdx - no. of bytes to write / buffer len
+;;
+;; ret:
+;;   rax - `0` on success and `-1` on error
+write_full:
+.write_loop:
+  cmp rdx, 0
+  jle .done
+
   mov rax, SYS_WRITE
   syscall
 
-  ;; fall through and close the client anyways
+  test rax, rax
+  js .err
+  jz .write_loop                ; continue if 0 bytes are written/sent
+
+  sub rdx, rax
+  add rsi, rax
+
+  jmp .write_loop
+.err:
+  mov rax, -1
+  jmp .ret
+.done:
+  mov rax, 0
+.ret:
+  ret
 
 close_client:
   mov rax, SYS_CLOSE
@@ -115,76 +192,6 @@ close_client:
   syscall
 
   jmp server_loop
-
-;; reads exactly `n` bytes from conn fd into buffer
-;;
-;; args:
-;;   rdi - client fd to read from
-;;   rsi - buffer pointer
-;;   rdx - `n` or no. of bytes to read
-;;
-;; ret:
-;;   rax - 0 on success, -1 on EOF/error
-read_full:
-.read_loop:
-  ;; check if `n` is 0
-  cmp rdx, 0
-  jle .done
-
-  ;; read from client fd
-  mov rax, SYS_READ
-  syscall
-
-  ;; check for read errors (rax < 0)
-  test rax, rax
-  js .error
-
-  sub rdx, rax                  ; subtract no. of bytes read from `n`
-  add rsi, rax                  ; advance buffer pointer by no. of bytes read
-
-  jmp .read_loop
-.done:
-  mov rax, 0
-  jmp .ret
-.error:
-  mov rax, -1
-.ret:
-  ret
-
-;; write exactly `n` bytes from buf to conn fd
-;;
-;; args:
-;;   rdi - clients fd
-;;   rsi - pointer to buffer
-;;   rdx - `n` or no of bytes to write
-;;
-;; ret:
-;;   rax: 0 on success and -1 on error
-write_all:
-.write_loop:
-  ;; check if `n` is 0
-  cmp rdx, 0
-  jle .done
-
-  ;; write to client
-  mov rax, SYS_WRITE
-  syscall
-
-  ;; check for write errors (rax < 0 && EOF)
-  test rax, rax
-  js .error
-
-  sub rdx, rax                  ; subtract no. of bytes read from `n`
-  add rsi, rax                  ; advance buffer pointer by no of bytes read
-
-  jmp .write_loop
-.done:
-  mov rax, 0
-  jmp .ret
-.error:
-  mov rax, -1
-.ret:
-  ret
 
 error_exit:
   mov rax, SYS_EXIT
