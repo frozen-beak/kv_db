@@ -5,6 +5,9 @@ TARGET = ll
 SRC = ll.asm
 OBJ = ll.o
 
+# Default: clean build files before executing the command
+all: clean $(TARGET)
+
 # build src file using `nasm`
 $(OBJ): $(SRC)
 	$(ASM) $< -o $@
@@ -12,9 +15,6 @@ $(OBJ): $(SRC)
 # link src file using `ld`
 $(TARGET): $(OBJ)
 	$(LD) -o $@ $^
-
-# build src
-build: $(TARGET)
 
 # Build w/ debug info
 debug:
