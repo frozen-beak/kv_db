@@ -2,6 +2,11 @@ global _start
 
 section .bss
   buf resb 16
+  key_buf resb 16
+  val_buf resb 16
+
+  key_len resq 1
+  val_len resq 1
 
 section .data
   cmd_err db "Unknown Command", 0x0a
@@ -18,16 +23,8 @@ _start:
   test rax, rax
   js error_exit
 
-  ;; write ll cmd to stdout
-  mov rdx, rax
-  lea rsi, [buf]
-  call write_stdout
-
-  ;; check for write errors (rax == -1)
-  test rax, rax
-  js error_exit
-
-  jmp exit
+  ;; process read cmd
+  jmp process_cmds
 
 ;; read user input from stdin
 ;;
@@ -79,6 +76,65 @@ write_stdout:
   mov rax, -1
 .ret:
   ret
+
+;; process linked list commands
+process_cmds:
+  cmp byte [buf], 'g'
+  je exit
+
+  cmp byte [buf], 's'
+  je set_cmd
+
+  cmp byte [buf], 'd'
+  je exit
+
+  jmp unknown_cmd
+
+;; handle `set` command
+set_cmd:
+  ;; read key from user
+  lea rsi, [key_buf]
+  mov rdx, 16
+  call read_stdin
+
+  ;; check for read errors (rax == -1)
+  test rax, rax
+  js error_exit
+
+  ;; store key buf len
+  mov [key_len], rax                ; no. of bytes read from stdin
+
+  ;; read value from user
+  lea rsi, [val_buf]
+  mov rdx, 16
+  call read_stdin
+
+  ;; check for read errors (rax == -1)
+  test rax, rax
+  js error_exit
+
+  ;; store val buf len
+  mov [val_len], rax                ; no. of bytes read from stdin
+
+  ;; write key to stdout
+  lea rsi, [key_buf]
+  mov rdx, [key_len]
+  call write_stdout
+
+  ;; check for write errors (rax == -1)
+  test rax, rax
+  js error_exit
+
+  ;; write val to stdout
+  lea rsi, [val_buf]
+  mov rdx, [val_len]
+  call write_stdout
+
+  ;; check for write errors (rax == -1)
+  test rax, rax
+  js error_exit
+
+  jmp exit
 
 unknown_cmd:
   mov rax, 0x01
